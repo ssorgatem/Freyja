@@ -11,7 +11,7 @@ from tqdm import tqdm
 import matplotlib
 
 
-def buildLineageMap(locDir):
+def buildLineageMap(locDir='-1'):
     # Parsing curated lineage data from outbreak.info
     if locDir == '-1':
         locDir = os.path.abspath(os.path.join(os.path.realpath(__file__),
@@ -33,15 +33,22 @@ def buildLineageMap(locDir):
     return mapDict
 
 
-def build_mix_and_depth_arrays(fn, depthFn, muts, covcut):
+def build_mix_and_depth_arrays(fn, depthFn, muts, covcut=10):
     input_is_vcf = fn.lower().endswith('vcf')
     if input_is_vcf:
         df = read_snv_frequencies_vcf(fn, depthFn, muts)
     else:
         df = read_snv_frequencies_ivar(fn, depthFn, muts)
-
+    maxmut = max([int(re.findall(r'\d+', kI)[0]) for kI in muts])+1
+    df["POS"] = df.POS + 21562
     # only works for substitutions, but that's what we get from usher tree
     df_depth = pd.read_csv(depthFn, sep='\t', header=None, index_col=1)
+    df_depth.index = df_depth.index + 21562
+    edf = pd.DataFrame(index=range(1, 21562+1))
+    edf[[0, 2, 3]] = ["Empty", "-", 0]
+    edf2 = pd.DataFrame(index=range(25385, maxmut))
+    edf2[[0, 2, 3]] = ["Empty", "-", 0]
+    df_depth = pd.concat([edf,df_depth, edf2]).dropna().sort_index()
     df['mutName'] = df['REF'] + df['POS'].astype(str) + df['ALT']
     df = df.drop_duplicates(subset='mutName')
     df.set_index('mutName', inplace=True)
@@ -275,12 +282,12 @@ if __name__ == '__main__':
     # read in  barcodes.
     df_barcodes = pd.read_csv('freyja/data/usher_barcodes.csv', index_col=0)
     muts = list(df_barcodes.columns)
-    mapDict = buildLineageMap()
+    #mapDict = buildLineageMap()
 
     # grab wastewater sample data
 
-    variants = sys.argv[1]  # variant file
-    depths = sys.argv[2]  # depth file
+    variants = sys.argv[-2]  # variant file
+    depths = sys.argv[-1]  # depth file
     # assemble data from of (possibly) mixed samples
     muts = list(df_barcodes.columns)
     eps = 0.001
@@ -288,6 +295,7 @@ if __name__ == '__main__':
     print('building mix/depth matrices')
     # assemble data from of (possibly) mixed samples
     mix, depths_, cov = build_mix_and_depth_arrays(variants, depths, muts)
+    #fn, depthFn, muts, covcut = variants, depths, muts, 10
     print('demixing')
     df_barcodes, mix, depths_ = reindex_dfs(df_barcodes, mix, depths_)
     sample_strains, abundances, error = solve_demixing_problem(df_barcodes,
